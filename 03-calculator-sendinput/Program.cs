@@ -19,7 +19,7 @@ class Program
             Thread.Sleep(800);
             proc.Refresh();
 
-            // Wait for main window handle
+            // Wait for main window handle (process.MainWindowHandle may be 0 for modern UWP apps)
             int tries = 0;
             while (proc.MainWindowHandle == IntPtr.Zero && tries++ < 20)
             {
@@ -27,18 +27,26 @@ class Program
                 proc.Refresh();
             }
 
-            if (proc.MainWindowHandle != IntPtr.Zero)
+            IntPtr hwnd = proc.MainWindowHandle;
+
+            // Fallback: try to find a top-level window with "Calculator" in the title
+            if (hwnd == IntPtr.Zero)
             {
-                NativeFunctions.SetForegroundWindow(proc.MainWindowHandle);
+                hwnd = FindWindowWithTitleContaining("Calculator");
+            }
+
+            if (hwnd != IntPtr.Zero)
+            {
+                NativeFunctions.SetForegroundWindow(hwnd);
                 Thread.Sleep(200);
 
                 // Send 4 + 3 Enter to calculator using SetInput helper
                 NativeFunctions.SetInput(VirtualKeys.VK_4);
-                Thread.Sleep(200);
+                Thread.Sleep(1000);
                 NativeFunctions.SetInput(VirtualKeys.VK_OEM_PLUS);
-                Thread.Sleep(200);
+                Thread.Sleep(1000);
                 NativeFunctions.SetInput(VirtualKeys.VK_3);
-                Thread.Sleep(200);
+                Thread.Sleep(1000);
                 NativeFunctions.SetInput(VirtualKeys.VK_RETURN);
 
                 Console.WriteLine("All done!");
@@ -53,4 +61,48 @@ class Program
             Console.WriteLine("Failed to start calculator.");
         }
     }
+
+    // Win32 helpers to find a top-level window by title substring
+    private static IntPtr FindWindowWithTitleContaining(string part)
+    {
+        IntPtr found = IntPtr.Zero;
+        part = part?.ToLowerInvariant() ?? string.Empty;
+
+        EnumWindows((hwnd, lParam) =>
+        {
+            if (IsWindowVisible(hwnd))
+            {
+                int length = GetWindowTextLength(hwnd);
+                if (length > 0)
+                {
+                    var sb = new System.Text.StringBuilder(length + 1);
+                    GetWindowText(hwnd, sb, sb.Capacity);
+                    var text = sb.ToString();
+                    if (!string.IsNullOrEmpty(text) && text.ToLowerInvariant().Contains(part))
+                    {
+                        found = hwnd;
+                        return false; // stop enumeration
+                    }
+                }
+            }
+            return true; // continue
+        }, IntPtr.Zero);
+
+        return found;
+    }
+
+    private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+
+    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+    private static extern int GetWindowTextLength(IntPtr hWnd);
+
+    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+    private static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder lpString, int nMaxCount);
+
+    [DllImport("user32.dll")]
+    private static extern bool IsWindowVisible(IntPtr hWnd);
+
 }

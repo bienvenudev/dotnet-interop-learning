@@ -12,6 +12,23 @@ static class NativeFunctions
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool SetForegroundWindow(IntPtr hWnd);
 
+    [DllImport("user32.dll")]
+    private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+
+    private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+    [DllImport("user32.dll")]
+    private static extern bool IsWindowVisible(IntPtr hWnd);
+
+    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+    private static extern int GetWindowTextLength(IntPtr hWnd);
+
+    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+    private static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder lpString, int nMaxCount);
+
     public static void SetInput(ushort vk)
     {
         INPUT[] inputs = new INPUT[2];
@@ -37,6 +54,63 @@ static class NativeFunctions
         {
             // swallow error for demo; in production you'd log Marshal.GetLastWin32Error()
         }
+
+    }
+
+    // Find a top-level visible window that belongs to the given process id
+    public static IntPtr FindMainWindowForProcess(int processId)
+    {
+        IntPtr found = IntPtr.Zero;
+
+        EnumWindows((hwnd, lParam) =>
+        {
+            if (!IsWindowVisible(hwnd))
+                return true; // continue
+
+            GetWindowThreadProcessId(hwnd, out uint pid);
+            if ((int)pid == processId)
+            {
+                found = hwnd;
+                return false; // stop enumeration
+            }
+
+            return true; // continue
+        }, IntPtr.Zero);
+
+        return found;
+    }
+
+    // Search all top-level windows and return the first visible one whose title contains 'part'
+    public static IntPtr FindWindowWithTitleContaining(string part)
+    {
+        if (string.IsNullOrEmpty(part))
+            return IntPtr.Zero;
+
+        string lower = part.ToLowerInvariant();
+        IntPtr found = IntPtr.Zero;
+
+        EnumWindows((hwnd, lParam) =>
+        {
+            if (!IsWindowVisible(hwnd))
+                return true; // continue
+
+            int len = GetWindowTextLength(hwnd);
+            if (len <= 0)
+                return true;
+
+            var sb = new System.Text.StringBuilder(len + 1);
+            GetWindowText(hwnd, sb, sb.Capacity);
+            var text = sb.ToString();
+            if (!string.IsNullOrEmpty(text) && text.ToLowerInvariant().Contains(lower))
+            {
+                found = hwnd;
+                return false; // stop
+            }
+
+            return true; // continue
+        }, IntPtr.Zero);
+
+        return found;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -97,7 +171,7 @@ static class VirtualKeys
     public const ushort VK_8 = 0x38;
     public const ushort VK_9 = 0x39;
 
-    public const ushort VK_OEM_PLUS = 0xBB; // '+' key (depends on layout)
+    public const ushort VK_OEM_PLUS = 0x6B; // '+' key (depends on layout)
     public const ushort VK_RETURN = 0x0D;
 }
 
